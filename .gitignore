@@ -1,0 +1,6 @@
+# Ignore intermediate and output data folders
+/data/intermediate/
+/data/output/
+
+# ignore python environment files venv/ *.pyc __pycache__/
+.venv/
