@@ -1,0 +1,42 @@
+{
+  "inputs": {
+    "dict1": "data/output/dict2_clean.jsonl",
+    "dict2": "data/output/dictionary.jsonl",
+    "dict3": "data/output/english_beja.jsonl"
+  },
+  "stats": {
+    "dict1": {
+      "total_unique": 5271,
+      "in_both_others": 1552,
+      "in_any_other": 1760,
+      "unique_to_this": 3511
+    },
+    "dict2": {
+      "total_unique": 6434,
+      "in_both_others": 1552,
+      "in_any_other": 5794,
+      "unique_to_this": 640
+    },
+    "dict3": {
+      "total_unique": 6564,
+      "in_both_others": 1552,
+      "in_any_other": 5794,
+      "unique_to_this": 770
+    }
+  },
+  "overlap": {
+    "all_three": 1552,
+    "dict1_and_dict2": 1656,
+    "dict1_and_dict3": 1656,
+    "dict2_and_dict3": 5690,
+    "union_all": 10819
+  },
+  "outputs": {
+    "unique_dict1": "reports/dict_compare/unique_dict1.txt",
+    "unique_dict2": "reports/dict_compare/unique_dict2.txt",
+    "unique_dict3": "reports/dict_compare/unique_dict3.txt"
+  },
+  "notes": {
+    "normalization": "strip + lowercase (edit normalize_beja_word() if you want more aggressive rules)"
+  }
+}

@@ -2,8 +2,8 @@ import json
 import os
 from typing import List, Dict, Any
 
-IN_PATH = "data/intermediate/dict2_pages_ocr_data.jsonl"
-OUT_LINES = "data/intermediate/dict2_reconstructed_lines.jsonl"
+IN_PATH = "data/intermediate/beja2/dict2_pages_ocr_data.jsonl"
+OUT_LINES = "data/intermediate/beja2/dict2_reconstructed_lines.jsonl"
 
 def main():
     if os.path.exists(OUT_LINES):

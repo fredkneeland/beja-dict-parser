@@ -4,8 +4,8 @@ import cv2
 import pytesseract
 from tqdm import tqdm
 
-IN_DIR = "data/intermediate/dict2_pages_pre"
-OUT_PATH = "data/intermediate/dict2_pages_ocr_data.jsonl"
+IN_DIR = "data/intermediate/beja2/dict2_pages_pre"
+OUT_PATH = "data/intermediate/beja2/dict2_pages_ocr_data.jsonl"
 
 def norm(s: str) -> str:
     s = s.replace("‎", "").replace("\u200f", "").replace("\u200e", "")

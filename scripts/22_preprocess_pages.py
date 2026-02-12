@@ -3,8 +3,8 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-IN_DIR = "data/intermediate/dict2_pages_img"
-OUT_DIR = "data/intermediate/dict2_pages_pre"
+IN_DIR = "data/intermediate/beja2/dict2_pages_img"
+OUT_DIR = "data/intermediate/beja2/dict2_pages_pre"
 
 def deskew(img: np.ndarray) -> np.ndarray:
     # light deskew using minAreaRect on thresholded pixels

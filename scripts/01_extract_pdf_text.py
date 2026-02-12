@@ -8,7 +8,7 @@ from tqdm import tqdm
 from typing import List, Dict, Tuple
 
 INPUT_PDF = "data/input/beja-dictionary-simple.pdf"
-OUT_DIR = "data/intermediate/pages_text_ocr_reflow"
+OUT_DIR = "data/intermediate/beja-en/pages_text_ocr_reflow"
 
 DPI = 350
 TESS_LANG = "ara+eng"

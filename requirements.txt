@@ -4,3 +4,6 @@ pillow==10.4.0
 tqdm==4.66.5
 regex==2024.7.24
 wordfreq==3.1.1
+numpy>=1.26
+opencv-python>=4.9
+rapidfuzz>=3.6

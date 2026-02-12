@@ -3,7 +3,7 @@ import fitz  # pymupdf
 from tqdm import tqdm
 
 PDF_PATH = "data/input/english-beja.pdf"
-OUT_DIR = "data/intermediate/engbeja_pages_img"
+OUT_DIR = "data/intermediate/en-beja/engbeja_pages_img"
 DPI = 300
 
 def main():

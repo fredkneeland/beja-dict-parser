@@ -3,7 +3,7 @@ import os
 import re
 from typing import Dict, Any, Optional, Tuple, List
 
-IN_LINES = "data/intermediate/dict2_reconstructed_lines.jsonl"
+IN_LINES = "data/intermediate/beja2/dict2_reconstructed_lines.jsonl"
 OUT_JSONL = "data/output/dict2_clean.jsonl"
 OUT_JSON = "data/output/dict2_clean.json"
 OUT_ERRORS = "data/output/dict2_errors.jsonl"

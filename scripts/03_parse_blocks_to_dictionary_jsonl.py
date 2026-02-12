@@ -1,156 +1,315 @@
-# first try at making our dictionary blocks into JSONL dictionary entries
 import json
 import os
 import re
-from typing import List, Dict, Optional
+from typing import Optional, List, Dict, Any
+from wordfreq import zipf_frequency
 
-INPUT_BLOCKS = "data/intermediate/blocks_jsonl/entry_blocks_region5.jsonl"
+INPUT_BLOCKS = "data/intermediate/beja-en/blocks_jsonl/entry_blocks_region.jsonl"
 OUT_JSONL = "data/output/dictionary.jsonl"
 OUT_JSON = "data/output/dictionary.json"
-OUT_ERRORS = "data/output/dictionary_errors.jsonl"
+OUT_ISSUES = "data/output/dictionary_issues.jsonl"
 
 os.makedirs("data/output", exist_ok=True)
 
+# Your abbreviation system
+POS_TOKENS = {"Adj", "Adv", "Con", "Dem", "Intj", "N", "Num", "Phr", "Pps", "Pron", "V"}
 REGION_TOKENS = {"Er", "Su", "Eg"}
 CLASS_TOKENS = {"Cush", "Sem"}
-POS_TOKENS = {"Adj", "Adv", "Con", "Dem", "Intj", "N", "Num", "Phr", "Pps", "Pron", "V"}
+GENDER_TOKENS = {"m", "f", "mf"}
+NUMBER_TOKENS = {"sg", "pl", "pl."}
 
 ARABIC_RE = re.compile(r"[\u0600-\u06FF]")
-LATIN_RE = re.compile(r"[A-Za-z]")
+BEJA_TOKEN_RE = re.compile(r"^[a-z][a-z']*(?:/[a-z])?$")
 
-def clean_token(t: str) -> str:
-    return t.strip().strip(",;:")
+def norm(s: str) -> str:
+    # remove bidi/zero-width junk, collapse spaces
+    s = s.replace("‎", "").replace("\u200f", "").replace("\u200e", "")
+    s = s.replace("\u00a0", " ")
+    s = " ".join(s.split())
+    return s.strip()
 
-def dedupe_preserve(xs: List[str]) -> List[str]:
-    out, seen = [], set()
-    for x in xs:
-        if x and x not in seen:
-            seen.add(x)
-            out.append(x)
+def tokenize_star_text(lines: List[str]) -> List[str]:
+    text = norm(" ".join(lines))
+    parts = [p.strip() for p in text.split("*")]
+    return [p for p in parts if p]
+
+def extract_arabic_chunks(lines: List[str]) -> List[str]:
+    text = norm(" ".join(lines))
+    chunks = re.findall(r"[\u0600-\u06FF][\u0600-\u06FF\s،؛\(\)\-]*", text)
+    out = []
+    seen = set()
+    for c in chunks:
+        c = norm(c)
+        if c and c not in seen:
+            seen.add(c)
+            out.append(c)
     return out
 
-def split_star_fields(lines: List[str]) -> List[str]:
-    # Join lines with spaces to avoid missing * boundaries across line breaks
-    text = " ".join(lines)
-    text = " ".join(text.split())
-    parts = [p.strip() for p in text.split("*")]
-    parts = [p for p in parts if p != ""]
-    return parts
-
-def extract_arabic_chunks(s: str) -> List[str]:
-    # Grab contiguous Arabic runs; simple and OCR-tolerant
-    chunks = re.findall(r"[\u0600-\u06FF][\u0600-\u06FF\s،؛\(\)\-]*", s)
-    return dedupe_preserve([clean_token(c.replace("  ", " ").strip()) for c in chunks])
-
-def extract_regions(tokens: List[str]) -> List[str]:
-    return [t for t in tokens if t in REGION_TOKENS]
-
-def extract_class(tokens: List[str]) -> Optional[str]:
+def normalize_tokens(tokens: List[str]) -> List[str]:
+    out = []
     for t in tokens:
-        if t in CLASS_TOKENS:
-            return t
-    return None
+        t = norm(t)
+        # strip punctuation that sticks to tags: "Er‏", "Su‏", etc.
+        t = t.strip(".,;:!?'\"()[]{}<>")
+        if t:
+            out.append(t)
+    return out
 
-def extract_pos(tokens: List[str]) -> List[str]:
-    return [t for t in tokens if t in POS_TOKENS]
+def english_zipf(tok: str) -> float:
+    tok = tok.lower().strip(".,;:!?\"()[]{}")
+    if not tok:
+        return 0.0
+    return zipf_frequency(tok, "en")
 
-def extract_gender(tokens: List[str]) -> Optional[str]:
-    # You see patterns like "m", "f", "mf" in blocks sometimes
+def looks_probably_english_headword(hw: str) -> bool:
+    """
+    Robust: if it's common English (Zipf >= ~4.5) and not very Beja-looking.
+    For multiword headwords, if most tokens are common English, reject.
+    """
+    toks = hw.split()
+    if not toks:
+        return False
+
+    # Beja-ish signals
+    beja_signals = 0
+    for t in toks:
+        tl = t.lower()
+        if "aa" in tl or "ii" in tl or "uu" in tl or "ee" in tl or "oo" in tl:
+            beja_signals += 1
+        if "'" in tl or tl.endswith("/t"):
+            beja_signals += 1
+
+    eng_scores = [english_zipf(t) for t in toks]
+    if max(eng_scores) >= 5.0 and beja_signals == 0:
+        return True
+    # If all tokens are fairly common English and weak Beja signals
+    if sum(1 for s in eng_scores if s >= 4.5) >= len(toks) and beja_signals == 0:
+        return True
+    return False
+
+def parse_tags(tokens: List[str]) -> Dict[str, Any]:
+    pos = []
+    regions = []
+    clazz = None
+    gender = None
+    number = None
+    nominalized_verb = False
+
     for t in tokens:
-        if t in {"m", "f", "mf"}:
-            return t
-    return None
+        if t in POS_TOKENS:
+            pos.append(t)
+        elif t in REGION_TOKENS:
+            regions.append(t)
+        elif t in CLASS_TOKENS:
+            clazz = t
+        elif t in GENDER_TOKENS:
+            gender = t
+        elif t in NUMBER_TOKENS:
+            number = t
+        elif t == "N" and "V" in tokens:
+            nominalized_verb = True
 
-def parse_entry(block: Dict) -> (Optional[Dict], Optional[Dict]):
-    lines = block["lines"]
-    headword = block.get("headword_guess")
+    # de-dupe
+    def dedupe(xs):
+        out, seen = [], set()
+        for x in xs:
+            if x not in seen:
+                seen.add(x)
+                out.append(x)
+        return out
 
-    # Star fields
-    fields = split_star_fields(lines)
-
-    # Tokenize all fields for tag extraction
-    tokens = []
-    for f in fields:
-        tokens.extend(re.split(r"\s+", f))
-    tokens = [clean_token(t) for t in tokens if t]
-
-    regions = dedupe_preserve(block.get("regions_guess") or extract_regions(tokens))
-    pos = dedupe_preserve(extract_pos(tokens))
-    clazz = extract_class(tokens)
-    gender = extract_gender(tokens)
-
-    # Heuristic extraction of glosses:
-    # Field order often: headword, english gloss, arabic gloss, POS, (gender), (class), regions
-    # But OCR can scramble; we’ll do content-based detection:
-    gloss_ar = []
-    gloss_en = []
-
-    # Arabic: scan full joined text
-    gloss_ar = extract_arabic_chunks(" ".join(lines))
-
-    # English gloss candidates: fields that contain latin letters but are not just tags
-    for f in fields[1:]:  # skip headword-ish field
-        if any(tag in f.split() for tag in POS_TOKENS | REGION_TOKENS | CLASS_TOKENS):
-            # may still contain gloss, but often tag-only; continue scanning anyway
-            pass
-        if LATIN_RE.search(f) and not ARABIC_RE.search(f):
-            # exclude pure tag fields
-            if f in POS_TOKENS or f in REGION_TOKENS or f in CLASS_TOKENS:
-                continue
-            gloss_en.append(f)
-
-    gloss_en = dedupe_preserve([clean_token(g) for g in gloss_en if g])
-
-    entry = {
-        "headword": headword,
-        "headword_parts": headword.split() if headword else None,
-        "gloss_en": gloss_en or None,
-        "gloss_ar": gloss_ar or None,
-        "pos": pos or None,
-        "gender": gender,
+    return {
+        "pos": dedupe(pos) or None,
+        "regions": dedupe(regions) or None,
         "class": clazz,
-        "regions": regions or None,
-        "raw": lines,
-        "source": {
-            "page": block.get("page"),
-            "start_line": block.get("start_line"),
-            "end_line": block.get("end_line"),
-        },
+        "gender": gender,
+        "number": number,
+        "nominalized_verb": nominalized_verb,
     }
 
-    # Validation: must have headword and at least something else useful
-    if not entry["headword"]:
-        return None, {"error": "missing_headword", "block": block}
-    if not (entry["gloss_en"] or entry["gloss_ar"]):
-        return entry, {"warning": "missing_gloss", "entry": entry}
+def extract_english_gloss(fields: List[str]) -> List[str]:
+    """
+    Keep only non-tag latin-ish gloss chunks, drop things like "Er Su Eg", "- Er", "= V".
+    """
+    glosses = []
+    for f in fields:
+        f = norm(f)
+        if not f:
+            continue
 
-    return entry, None
+        # drop pure-tag fields
+        toks = normalize_tokens(re.split(r"\s+", f))
+        if toks and all(t in (POS_TOKENS | REGION_TOKENS | CLASS_TOKENS | GENDER_TOKENS | NUMBER_TOKENS | {"-", "—", "_", "=", "Ar."})
+                        for t in toks):
+            continue
+
+        # If it contains latin letters but not Arabic, treat as English gloss candidate
+        if re.search(r"[A-Za-z]", f) and not ARABIC_RE.search(f):
+            # also drop cases like "- Er" or "= V"
+            if len(toks) <= 2 and any(t in REGION_TOKENS or t in POS_TOKENS for t in toks):
+                continue
+            glosses.append(f)
+
+    # de-dupe
+    out, seen = [], set()
+    for g in glosses:
+        g = norm(g).strip(",;")
+        if g and g not in seen:
+            seen.add(g)
+            out.append(g)
+    return out
+
+def repair_missing_prefix(entry: Dict[str, Any], prev: Optional[Dict[str, Any]]) -> bool:
+    """
+    Repair pattern like:
+      prev.headword = "aada"
+      entry.headword = "daatiya"   (should be "aada daatiya")
+    Only apply when:
+      - entry headword is single token, beja-ish
+      - entry pos is Phr (or similar subentry-like)
+      - previous exists, previous headword is single token
+      - same regions (or entry regions missing but prev has them)
+      - consecutive in source lines
+    """
+    if not prev:
+        return False
+    hw = entry.get("headword") or ""
+    if " " in hw:
+        return False
+    if not BEJA_TOKEN_RE.match(hw):
+        return False
+    if entry.get("pos") != ["Phr"] and entry.get("pos") != ["Phr",]:
+        # also allow None? but keep conservative
+        return False
+
+    prev_hw = prev.get("headword") or ""
+    if " " in prev_hw:
+        return False
+    if not prev_hw:
+        return False
+
+    # line adjacency
+    try:
+        if entry["source"]["page"] != prev["source"]["page"]:
+            return False
+        if entry["source"]["start_line"] != prev["source"]["end_line"] + 1:
+            return False
+    except Exception:
+        return False
+
+    # region compatibility
+    er = entry.get("regions")
+    pr = prev.get("regions")
+    if er and pr and er != pr:
+        return False
+
+    # apply
+    entry["headword"] = f"{prev_hw} {hw}"
+    entry["headword_parts"] = [prev_hw, hw]
+    return True
+
+def parse_block_to_entry(block: Dict[str, Any]) -> Dict[str, Any]:
+    raw_lines = [norm(l) for l in block["lines"] if norm(l)]
+    fields = tokenize_star_text(raw_lines)
+    tokens = normalize_tokens(re.split(r"\s+", " ".join(fields)))
+
+    tags = parse_tags(tokens)
+
+    entry = {
+        "headword": norm(block.get("headword_guess") or ""),
+        "headword_parts": (block.get("headword_guess") or "").split() if block.get("headword_guess") else None,
+        "gloss_en": None,
+        "gloss_ar": None,
+        "pos": tags["pos"],
+        "gender": tags["gender"],
+        "number": tags["number"],
+        "class": tags["class"],
+        "nominalized_verb": tags["nominalized_verb"],
+        "regions": tags["regions"] or (block.get("regions_guess") or None),
+        "raw": raw_lines,
+        "source": {"page": block.get("page"), "start_line": block.get("start_line"), "end_line": block.get("end_line")},
+    }
+
+    # Arabic gloss
+    ar = extract_arabic_chunks(raw_lines)
+    entry["gloss_ar"] = ar or None
+
+    # English gloss from fields AFTER headword-ish field
+    # (fields[0] often includes headword + maybe junk; still safer to scan fields[1:])
+    en = extract_english_gloss(fields[1:] if len(fields) > 1 else [])
+    entry["gloss_en"] = en or None
+
+    return entry
 
 def main():
-    entries = []
-    with open(OUT_ERRORS, "w", encoding="utf-8") as err_out, \
-         open(OUT_JSONL, "w", encoding="utf-8") as out:
+    entries: List[Dict[str, Any]] = []
+    issues_out = open(OUT_ISSUES, "w", encoding="utf-8")
 
-        with open(INPUT_BLOCKS, "r", encoding="utf-8") as f:
-            for line in f:
-                block = json.loads(line)
-                entry, issue = parse_entry(block)
+    prev_entry: Optional[Dict[str, Any]] = None
 
-                if issue:
-                    err_out.write(json.dumps(issue, ensure_ascii=False) + "\n")
+    with open(INPUT_BLOCKS, "r", encoding="utf-8") as f:
+        for line in f:
+            block = json.loads(line)
+            entry = parse_block_to_entry(block)
 
-                if entry:
-                    entries.append(entry)
-                    out.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            # If headword is missing or looks like English, treat it as continuation of previous
+            hw = entry["headword"]
+            if not hw or looks_probably_english_headword(hw):
+                if prev_entry is not None:
+                    prev_entry["raw"].extend(entry["raw"])
+                    # Recompute glosses from merged raw (simple refresh)
+                    merged = parse_block_to_entry({
+                        "headword_guess": prev_entry["headword"],
+                        "lines": prev_entry["raw"],
+                        "page": prev_entry["source"]["page"],
+                        "start_line": prev_entry["source"]["start_line"],
+                        "end_line": prev_entry["source"]["end_line"],
+                        "regions_guess": prev_entry.get("regions"),
+                    })
+                    # Keep the same headword, update glosses/tags if improved
+                    for k in ["gloss_en", "gloss_ar", "pos", "gender", "number", "class", "regions", "nominalized_verb"]:
+                        if merged.get(k) is not None:
+                            prev_entry[k] = merged[k]
 
-    with open(OUT_JSON, "w", encoding="utf-8") as f:
-        json.dump(entries, f, ensure_ascii=False, indent=2)
+                    issues_out.write(json.dumps({
+                        "type": "merged_continuation",
+                        "dropped_headword": hw,
+                        "into_headword": prev_entry["headword"],
+                        "source": entry["source"],
+                    }, ensure_ascii=False) + "\n")
+                else:
+                    issues_out.write(json.dumps({
+                        "type": "dropped_orphan_block",
+                        "reason": "english_or_missing_headword_and_no_previous",
+                        "block": block,
+                    }, ensure_ascii=False) + "\n")
+                continue
 
-    print(f"Wrote {len(entries)} entries to:")
+            # Repair missing-prefix subentry (daatiya -> aada daatiya)
+            if repair_missing_prefix(entry, prev_entry):
+                issues_out.write(json.dumps({
+                    "type": "repaired_subentry_prefix",
+                    "new_headword": entry["headword"],
+                    "source": entry["source"],
+                }, ensure_ascii=False) + "\n")
+
+            entries.append(entry)
+            prev_entry = entry
+
+    issues_out.close()
+
+    with open(OUT_JSONL, "w", encoding="utf-8") as out:
+        for e in entries:
+            out.write(json.dumps(e, ensure_ascii=False) + "\n")
+
+    with open(OUT_JSON, "w", encoding="utf-8") as out:
+        json.dump(entries, out, ensure_ascii=False, indent=2)
+
+    print(f"Wrote {len(entries)} entries:")
     print(f" - {OUT_JSONL}")
     print(f" - {OUT_JSON}")
-    print(f"Issues logged to:")
-    print(f" - {OUT_ERRORS}")
+    print(f"Issues:")
+    print(f" - {OUT_ISSUES}")
 
 if __name__ == "__main__":
     main()

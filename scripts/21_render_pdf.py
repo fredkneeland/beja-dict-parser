@@ -3,7 +3,7 @@ import fitz  # pymupdf
 from tqdm import tqdm
 
 PDF_PATH = "data/input/dict2.pdf"  # <-- change to your filename
-OUT_DIR = "data/intermediate/dict2_pages_img"
+OUT_DIR = "data/intermediate/beja2/dict2_pages_img"
 DPI = 450  # quality > speed
 
 def main():

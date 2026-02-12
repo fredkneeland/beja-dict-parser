@@ -3,8 +3,8 @@ import json
 import re
 from tqdm import tqdm
 
-INPUT_DIR = "data/intermediate/engbeja_pages_text_2col"
-OUT_PATH = "data/intermediate/english_beja_blocks.jsonl"
+INPUT_DIR = "data/intermediate/en-beja/engbeja_pages_text_2col"
+OUT_PATH = "data/intermediate/en-beja/english_beja_blocks.jsonl"
 
 REGIONS = {"Er", "Su", "Eg"}
 

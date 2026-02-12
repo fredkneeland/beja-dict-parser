@@ -3,8 +3,8 @@ from PIL import Image
 import pytesseract
 from tqdm import tqdm
 
-IMG_DIR = "data/intermediate/engbeja_pages_img"
-OUT_DIR = "data/intermediate/engbeja_pages_text_2col"
+IMG_DIR = "data/intermediate/en-beja/engbeja_pages_img"
+OUT_DIR = "data/intermediate/en-beja/engbeja_pages_text_2col"
 
 # Use Arabic+English if available
 OCR_LANG_PRIMARY = "eng+ara"

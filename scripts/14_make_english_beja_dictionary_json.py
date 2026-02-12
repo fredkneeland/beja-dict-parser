@@ -3,7 +3,7 @@ import os
 import re
 from typing import List, Dict, Any, Optional
 
-IN_BLOCKS = "data/intermediate/english_beja_blocks.jsonl"
+IN_BLOCKS = "data/intermediate/en-beja/english_beja_blocks.jsonl"
 OUT_JSONL = "data/output/english_beja.jsonl"
 OUT_JSON = "data/output/english_beja.json"
 OUT_ISSUES = "data/output/english_beja_issues.jsonl"
